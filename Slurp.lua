@@ -129,16 +129,30 @@ end
 function Slurp:UpdateWindow()
     if not self.window then return end
     local content = self.window.content
-    for i, child in ipairs({content:GetChildren()}) do child:Hide() end
+
+    -- Create or reuse FontStrings
+    Slurp.fontStrings = Slurp.fontStrings or {}
+
+    -- Hide all FontStrings first
+    for _, fs in ipairs(Slurp.fontStrings) do
+        fs:Hide()
+    end
 
     local y = -5
+    local idx = 1
     for user, items in pairs(self.tally) do
         for itemID, count in pairs(items) do
             local name = self.cauldronItems[itemID] or ("Item "..itemID)
-            local fs = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            local fs = Slurp.fontStrings[idx]
+            if not fs then
+                fs = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                Slurp.fontStrings[idx] = fs
+            end
             fs:SetPoint("TOPLEFT", 10, y)
             fs:SetText(user .. ": " .. name .. " x" .. count)
+            fs:Show()
             y = y - 20
+            idx = idx + 1
         end
     end
 end
@@ -162,7 +176,7 @@ SlashCmdList["SLURP"] = function(msg)
     elseif msg:lower() == "debug" then
         emitDebugMessages = not emitDebugMessages
         print("SlurpDebug is now " .. (emitDebugMessages and "enabled" or "disabled"))
-    elseif msg:lower() == "allItems" then
+    elseif msg:lower() == "all" then
         applyCauldronItemFiltering = not applyCauldronItemFiltering
         print("Slurp will now record " .. (applyCauldronItemFiltering and "only cauldron items." or "all items."))
     else
@@ -171,7 +185,7 @@ SlashCmdList["SLURP"] = function(msg)
         print("/slurp hide - Hide the Slurp window")
         print("/slurp reset - Reset all recorded data")
         print("/slurp debug - Toggle debug messages")
-        print("/slurp allItems - Toggle recording all items vs only cauldron items")
+        print("/slurp all - Toggle recording all items vs only cauldron items")
     end
 end
 
