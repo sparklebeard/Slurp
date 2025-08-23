@@ -1,0 +1,7 @@
+## Interface: 110200
+## Title: Slurp
+## Notes: Tallies uses of the cauldron consumables in a raid group.
+## Author: Sparklebeard
+## Version: 1.0.0
+
+Slurp.lua
