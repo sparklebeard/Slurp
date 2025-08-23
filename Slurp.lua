@@ -4,13 +4,18 @@ local Slurp = CreateFrame("Frame", "SlurpFrame")
 
 -- Only register relevant events
 Slurp:RegisterEvent("CHAT_MSG_LOOT")
-Slurp:RegisterEvent("CHAT_MSG_TRADESKILLS")
 
 -- Data storage
 Slurp.tally = {}
 
 -- Configuration
-local suppressOwnServerName = true
+local suppressOwnServerName = true -- If true, the player's server name will be hidden in the ledger.
+local applyCauldronItemFiltering = true -- If true, will only record cauldron items.
+local recordAnyFleetingItems = false -- If true, will record all fleeting items even if cauldron filtering is active.
+
+-- Localization Headaches
+local FLEETING_ITEM_KEYWORD = "Fleeting" -- The string to identify fleeting items
+local PLAYER_NAME_YOU = "You" -- The string used in loot messages to refer to the player running the addon
 
 -- Cauldron item IDs (example, replace with actual IDs)
 Slurp.cauldronItems = {
@@ -67,6 +72,11 @@ Slurp.cauldronItems = {
     [212974] = "Fleeting Potion of the Reborn Cheetah",
     [244849] = "Fleeting Invigorating Healing Potion",
 }
+local emitDebugMessages = true
+function Slurp.DebugPrint(msg)
+    if not emitDebugMessages or not msg then return end
+    print("SlurpDebug: " .. msg)
+end
 
 -- UI stub
 function Slurp:CreateWindow()
@@ -75,6 +85,7 @@ function Slurp:CreateWindow()
     f:SetSize(600, 400)
     f:SetPoint("CENTER")
     f:SetMovable(true)
+    f:SetUserPlaced(true)
     f:EnableMouse(true)
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving)
@@ -141,41 +152,61 @@ end
 -- Slash command
 SLASH_SLURP1 = "/slurp"
 SlashCmdList["SLURP"] = function(msg)
-    if msg:lower() == "show" then
+    if msg:lower() == "show" or msg:lower() == "open" then
         Slurp:ShowWindow()
     elseif msg:lower() == "reset" then
         Slurp.tally = {}
         Slurp:UpdateWindow()
     elseif msg:lower() == "hide" then
         Slurp:HideWindow()
-    elseif msg:lower() == "beep" then
-        print("Beep")
+    elseif msg:lower() == "debug" then
+        emitDebugMessages = not emitDebugMessages
+        print("SlurpDebug is now " .. (emitDebugMessages and "enabled" or "disabled"))
+    elseif msg:lower() == "allItems" then
+        applyCauldronItemFiltering = not applyCauldronItemFiltering
+        print("Slurp will now record " .. (applyCauldronItemFiltering and "only cauldron items." or "all items."))
+    else
+        print("Slurp commands:")
+        print("/slurp show - Show the Slurp window")
+        print("/slurp hide - Hide the Slurp window")
+        print("/slurp reset - Reset all recorded data")
+        print("/slurp debug - Toggle debug messages")
+        print("/slurp allItems - Toggle recording all items vs only cauldron items")
     end
 end
 
 -- Event handler stub
 Slurp:SetScript("OnEvent", function(self, event, ...)
-    if event == "CHAT_MSG_LOOT" or event == "CHAT_MSG_TRADESKILLS" then
+    if event == "CHAT_MSG_LOOT" then
         local msg, user = ...
-        print(event)
         Slurp:ParseMessage(msg, user)
     end
 end)
 
 -- Message parsing stub
 function Slurp:ParseMessage(msg, user)
-    -- Example loot message: "Player receives item: [Fleeting Flask of Tempered Aggression]."
-    print(msg, user)
+    -- Example loot message: "Sparklebeard-Stormrage creates: [Fleeting Flask of Tempered Aggression]."
     local player, itemName = msg:match("^(%a[%a%-]*) creates*: (.-)%.$")
-    print(player)
-    print(itemName)
     if not player or not itemName then 
         -- maybe it's potions in a stack, so try with the x5 suffix
+        -- Example loot message: "Sparklebeard-Stormrage creates: [Fleeting Tempered Potion of Whatever]x5."
         player, itemName = msg:match("^(%a[%a%-]*) creates*: (.-)x%d%.$")
         if not player or not itemName then return end
     end
 
-    if player == "You" then
+    -- Get the item ID
+    local itemID = self:GetItemIDFromLink(itemName)
+    self.DebugPrint(itemID)
+    if not itemID then return end
+
+    -- Apply filtering for cauldron items. Restrict to items in the cauldronItems dictionary, or "Fleeting" items if enabled.
+    if applyCauldronItemFiltering then
+        local isCauldronItem = self.cauldronItems[itemID]
+        local isFleetingItem = recordAnyFleetingItems and itemName:find(FLEETING_ITEM_KEYWORD) ~= nil
+        if not isFleetingItem and not isCauldronItem then return end
+    end
+
+    if player == PLAYER_NAME_YOU then
         if suppressOwnServerName then
             -- remove the "-ServerName" from the name
             local nameOnly = user:match("^[^%-]+")
@@ -191,4 +222,23 @@ function Slurp:ParseMessage(msg, user)
     self.tally[player] = self.tally[player] or {}
     self.tally[player][itemName] = (self.tally[player][itemName] or 0) + 1
     self:UpdateWindow()
+end
+
+-- Extract item ID from an item link
+function Slurp:GetItemIDFromLink(link)
+    if type(link) ~= "string" then return nil end
+    local itemID = link:match("item:(%d+)")
+    return tonumber(itemID)
+end
+
+-- Extract item name from an item link
+function Slurp:GetItemNameFromLink(link)
+    if type(link) ~= "string" then return nil end
+    local name = link:match("|h%[(.-)%]|h")
+    return name
+end
+
+-- Check if a string is an item link
+function Slurp:IsItemLink(str)
+    return type(str) == "string" and str:find("|Hitem:") ~= nil
 end
