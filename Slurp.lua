@@ -13,6 +13,9 @@ local suppressOwnServerName = true -- If true, the player's server name will be 
 local applyCauldronItemFiltering = true -- If true, will only record cauldron items.
 local recordAnyFleetingItems = false -- If true, will record all fleeting items even if cauldron filtering is active.
 
+-- Sorting configuration
+Slurp.sortMode = "name_ascending" -- Options: "name_ascending", "name_descending", "count_ascending", "count_descending"
+
 -- Localization Headaches
 local FLEETING_ITEM_KEYWORD = "Fleeting" -- The string to identify fleeting items
 local PLAYER_NAME_YOU = "You" -- The string used in loot messages to refer to the player running the addon
@@ -95,6 +98,31 @@ function Slurp:CreateWindow()
     f.title:SetPoint("LEFT", f.TitleBg, "LEFT", 5, 0)
     f.title:SetText("Slurp Cauldron Usage")
 
+    -- Sorting Dropdown
+    local sortingOptions = {
+        { text = "Name Ascending", value = "name_ascending" },
+        { text = "Name Descending", value = "name_descending" },
+        { text = "Count Ascending", value = "count_ascending" },
+        { text = "Count Descending", value = "count_descending" },
+    }
+    f.sortDropdown = CreateFrame("Frame", "SlurpSortDropdown", f, "UIDropDownMenuTemplate")
+    f.sortDropdown:SetPoint("TOPRIGHT", -10, -10)
+    UIDropDownMenu_SetWidth(f.sortDropdown, 150)
+    UIDropDownMenu_Initialize(f.sortDropdown, function(self, level)
+        for _, opt in ipairs(sortingOptions) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = opt.text
+            info.value = opt.value
+            info.func = function()
+                Slurp.sortMode = opt.value
+                UIDropDownMenu_SetSelectedValue(f.sortDropdown, opt.value)
+                Slurp:UpdateWindow()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+    UIDropDownMenu_SetSelectedValue(f.sortDropdown, Slurp.sortMode)
+
     -- Reset Button
     f.resetBtn = CreateFrame("Button", nil, f, "GameMenuButtonTemplate")
     f.resetBtn:SetPoint("BOTTOMLEFT", 10, 10)
@@ -138,22 +166,43 @@ function Slurp:UpdateWindow()
         fs:Hide()
     end
 
-    local y = -5
-    local idx = 1
+    -- Collect all entries into a sortable array
+    local entries = {}
     for user, items in pairs(self.tally) do
         for itemID, count in pairs(items) do
-            local name = self.cauldronItems[itemID] or ("Item "..itemID)
-            local fs = Slurp.fontStrings[idx]
-            if not fs then
-                fs = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                Slurp.fontStrings[idx] = fs
-            end
-            fs:SetPoint("TOPLEFT", 10, y)
-            fs:SetText(user .. ": " .. name .. " x" .. count)
-            fs:Show()
-            y = y - 20
-            idx = idx + 1
+            local name = (""..itemID)
+            table.insert(entries, { user = user, itemID = itemID, name = name, count = count })
         end
+    end
+
+    -- Sorting logic
+    table.sort(entries, function(a, b)
+        if Slurp.sortMode == "name_ascending" then
+            return a.name < b.name
+        elseif Slurp.sortMode == "name_descending" then
+            return a.name > b.name
+        elseif Slurp.sortMode == "count_ascending" then
+            return a.count < b.count
+        elseif Slurp.sortMode == "count_descending" then
+            return a.count > b.count
+        else
+            return a.name < b.name
+        end
+    end)
+
+    local y = -5
+    local idx = 1
+    for _, entry in ipairs(entries) do
+        local fs = Slurp.fontStrings[idx]
+        if not fs then
+            fs = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            Slurp.fontStrings[idx] = fs
+        end
+        fs:SetPoint("TOPLEFT", 10, y)
+        fs:SetText(entry.user .. " clicked " .. entry.name .. " x" .. entry.count)
+        fs:Show()
+        y = y - 20
+        idx = idx + 1
     end
 end
 
@@ -200,23 +249,21 @@ end)
 -- Message parsing stub
 function Slurp:ParseMessage(msg, user)
     -- Example loot message: "Sparklebeard-Stormrage creates: [Fleeting Flask of Tempered Aggression]."
-    local player, itemName = msg:match("^(%a[%a%-]*) creates*: (.-)%.$")
-    if not player or not itemName then 
-        -- maybe it's potions in a stack, so try with the x5 suffix
-        -- Example loot message: "Sparklebeard-Stormrage creates: [Fleeting Tempered Potion of Whatever]x5."
-        player, itemName = msg:match("^(%a[%a%-]*) creates*: (.-)x%d%.$")
-        if not player or not itemName then return end
-    end
+    local player, itemLink = msg:match("^(%a[%a%-]*) creates*: (.-)%.$")
+    if not player or not itemLink then end
 
     -- Get the item ID
-    local itemID = self:GetItemIDFromLink(itemName)
+    local itemID = self:GetItemIDFromLink(itemLink)
     self.DebugPrint(itemID)
     if not itemID then return end
 
+    -- Get the item name
+    local itemName = self:GetItemNameFromLink(itemLink)
+
     -- Apply filtering for cauldron items. Restrict to items in the cauldronItems dictionary, or "Fleeting" items if enabled.
+    local isCauldronItem = self.cauldronItems[itemID]
     if applyCauldronItemFiltering then
-        local isCauldronItem = self.cauldronItems[itemID]
-        local isFleetingItem = recordAnyFleetingItems and itemName:find(FLEETING_ITEM_KEYWORD) ~= nil
+        local isFleetingItem = recordAnyFleetingItems and itemLink:find(FLEETING_ITEM_KEYWORD) ~= nil
         if not isFleetingItem and not isCauldronItem then return end
     end
 
