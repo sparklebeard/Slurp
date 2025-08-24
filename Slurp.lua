@@ -135,7 +135,7 @@ end
 function Slurp:CreateWindow()
     if self.window then return end
     local f = CreateFrame("Frame", "SlurpWindow", UIParent, "BasicFrameTemplateWithInset")
-    f:SetSize(600, 400)
+    f:SetSize(400, 400)
     f:SetPoint("CENTER")
     f:SetMovable(true)
     f:SetUserPlaced(true)
@@ -214,6 +214,47 @@ function Slurp:CreateWindow()
     self:UpdateWindow()
 end
 
+-- Utility: Get class color hex code by class name
+function Slurp:GetClassColorHex(className)
+    print(className)
+    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[className]
+    if color then
+        return string.format("|cff%02x%02x%02x", color.r * 255, color.g * 255, color.b * 255)
+    end
+    return "|cffffffff" -- fallback to white
+end
+
+-- Utility: Get class name for a player (works for group/raid members only)
+function Slurp:GetClassForPlayer(playerName)
+    -- Try to find the unit in group/raid
+    local unit
+    if UnitName("player") == playerName then
+        unit = "player"
+    else
+        for i = 1, GetNumGroupMembers() do
+            local name = GetRaidRosterInfo(i)
+            if name and name:find("^" .. playerName) then
+                unit = "raid" .. i
+                break
+            end
+        end
+        if not unit and IsInGroup() then
+            for i = 1, GetNumSubgroupMembers() do
+                local name = UnitName("party" .. i)
+                if name and name:find("^" .. playerName) then
+                    unit = "party" .. i
+                    break
+                end
+            end
+        end
+    end
+    if unit then
+        local _, class = UnitClass(unit)
+        return class
+    end
+    return nil
+end
+
 function Slurp:UpdateWindow()
     if not self.window or not self.window.content then return end
     local content = self.window.content
@@ -278,7 +319,10 @@ function Slurp:UpdateWindow()
             fs = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             Slurp.fontStrings[idx] = fs
         end
-        fs:SetText(entry.user .. " took " .. entry.count .. " x " .. entry.name)
+        local className = Slurp:GetClassForPlayer(entry.user)
+        local colorHex = Slurp:GetClassColorHex(className)
+        local coloredUser = colorHex .. entry.user .. "|r"
+        fs:SetText(coloredUser .. " took " .. entry.count .. " x " .. entry.name)
         fs:SetPoint("TOPLEFT", 10, y)
         fs:Show()
         y = y - 20
@@ -381,7 +425,7 @@ function Slurp:ParseMessage(msg, user)
         -- If we are recording any fleeting items, but this isn't fleeting, then we can stop.
         if recordAnyFleetingItems and not isFleetingItem then return end
     end
-
+    -- Add it to the tally
     self:IncrementItemIDCountForPlayer(itemID, player)
 end
 
