@@ -200,6 +200,16 @@ function Slurp:CreateWindow()
     f.content:SetSize(1, 1)
     f.scrollFrame:SetScrollChild(f.content)
 
+    -- Group by ItemType Checkbox
+    f.groupByTypeCheckbox = CreateFrame("CheckButton", nil, f, "ChatConfigCheckButtonTemplate")
+    f.groupByTypeCheckbox:SetPoint("TOPLEFT", 10, -10)
+    f.groupByTypeCheckbox.Text:SetText("Group by Item Type")
+    f.groupByTypeCheckbox:SetChecked(self.groupByType or false)
+    f.groupByTypeCheckbox:SetScript("OnClick", function(self)
+        Slurp.groupByType = self:GetChecked()
+        Slurp:UpdateWindow()
+    end)
+
     self.window = f
     self:UpdateWindow()
 end
@@ -208,29 +218,44 @@ function Slurp:UpdateWindow()
     if not self.window or not self.window.content then return end
     local content = self.window.content
 
-    -- Create or reuse FontStrings
     Slurp.fontStrings = Slurp.fontStrings or {}
+    for _, fs in ipairs(Slurp.fontStrings) do fs:Hide() end
 
-    -- Hide all FontStrings first
-    for _, fs in ipairs(Slurp.fontStrings) do
-        fs:Hide()
-    end
-
-    -- Collect all entries into a sortable array
     local entries = {}
-    for user, items in pairs(self.tally) do
-        for itemID, count in pairs(items) do
-            local itemName = (self.cauldronItems[itemID] and self.cauldronItems[itemID].name)
-            or (self.nonCauldronItems[itemID] and self.nonCauldronItems[itemID].name)
-            or (self.anyFleetingItems[itemID] and self.anyFleetingItems[itemID].name)
-            or ("Unknown Item with ID: " .. itemID)
 
-            local name = (""..itemName) -- Ensure it's a string
-            table.insert(entries, { user = user, itemID = itemID, name = name, count = count })
+    if self.groupByType then
+        -- Aggregate by ItemType
+        local typeTally = {}
+        for user, items in pairs(self.tally) do
+            typeTally[user] = typeTally[user] or {}
+            for itemID, count in pairs(items) do
+                local itemType =
+                    (self.cauldronItems[itemID] and self.cauldronItems[itemID].itemType)
+                    or (self.nonCauldronItems[itemID] and self.nonCauldronItems[itemID].itemType)
+                    or (self.anyFleetingItems[itemID] and self.anyFleetingItems[itemID].itemType)
+                    or "Unknown"
+                typeTally[user][itemType] = (typeTally[user][itemType] or 0) + count
+            end
+        end
+        for user, types in pairs(typeTally) do
+            for itemType, count in pairs(types) do
+                table.insert(entries, { user = user, name = itemType, count = count })
+            end
+        end
+    else
+        -- Aggregate by item
+        for user, items in pairs(self.tally) do
+            for itemID, count in pairs(items) do
+                local itemName = (self.cauldronItems[itemID] and self.cauldronItems[itemID].name)
+                    or (self.nonCauldronItems[itemID] and self.nonCauldronItems[itemID].name)
+                    or (self.anyFleetingItems[itemID] and self.anyFleetingItems[itemID].name)
+                    or ("Unknown Item with ID: " .. itemID)
+                table.insert(entries, { user = user, itemID = itemID, name = itemName, count = count })
+            end
         end
     end
 
-    -- Sorting logic
+    -- Sorting logic (by name or count)
     table.sort(entries, function(a, b)
         if Slurp.sortMode == Slurp.SortMode.NAME_ASCENDING then
             return a.name < b.name
@@ -253,8 +278,8 @@ function Slurp:UpdateWindow()
             fs = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             Slurp.fontStrings[idx] = fs
         end
+        fs:SetText(entry.user .. " took " .. entry.count .. " x " .. entry.name)
         fs:SetPoint("TOPLEFT", 10, y)
-        fs:SetText(entry.user .. " clicked " .. entry.name .. " x" .. entry.count)
         fs:Show()
         y = y - 20
         idx = idx + 1
